@@ -67,15 +67,34 @@ glossary:
 
 ## Configuration Files and Loading
 
-The server uses a hierarchical configuration system that loads configurations from multiple sources:
+The server uses a **layered configuration system** that loads and merges configurations from multiple sources. See the [Configuration Guide](CONFIGURATION.md#layered-configuration-strategy) for full details.
+
+### Configuration Directory
+
+You can specify a custom configuration directory using the `--config_dir` parameter or `CONFIG_DIR` environment variable:
+
+```bash
+# Using command line
+teradata-mcp-server --config_dir /path/to/my/config --profile sales
+
+# Using environment variable
+export CONFIG_DIR=/path/to/my/config
+teradata-mcp-server --profile sales
+```
+
+**Default:** If not specified, the current working directory is used.
 
 ### Profiles Configuration
 
-**Default profiles** are packaged with the server installation. You can override or extend these by creating a `profiles.yml` file in your **current working directory** (where you run the server from).
+**Default profiles** are packaged with the server installation in `src/teradata_mcp_server/config/profiles.yml`. You can override or extend these by creating a `profiles.yml` file in your **configuration directory**.
+
+The server uses a **simple override strategy**, so your custom `profiles.yml` can:
+- Add new profiles
+- Override existing profiles entirely (top-level keys are replaced completely)
 
 Each profile defines which tools, prompts, and resources are enabled for a given context (e.g., user group, domain, or use case). Profiles use regular expression patterns to match tool, prompt, and resource names, allowing flexible grouping and reuse.
 
-**Example `profiles.yml` in your working directory:**
+**Example `profiles.yml` in your config directory:**
 ```yaml
 sales:
   tool:
@@ -95,7 +114,7 @@ dba:
 
 **Configuration loading priority:**
 1. **Packaged defaults** - Built-in profiles shipped with the package
-2. **Working directory** - Your local `profiles.yml` (overrides packaged profiles)
+2. **Config directory** - Your `profiles.yml` in the config directory (top-level keys replace packaged profiles)
 
 ### Running with Profiles
 
@@ -118,9 +137,9 @@ The server loads custom objects (tools, cubes, prompts, glossaries) from multipl
 
 **Configuration loading priority:**
 1. **Packaged defaults** - Built-in objects from `src/tools/*/*.yml` (shipped with package)
-2. **Working directory** - Any `*.yml` files in your current working directory (overrides packaged objects)
+2. **Config directory** - Any `*.yml` files in your config directory (overrides packaged objects by name)
 
-**File naming:** Custom object files should be named `*.yml` (e.g., `sales_objects.yml`, `finance_objects.yml`, `my_custom_tools.yml`). The `profiles.yml` file is handled separately.
+**File naming:** Custom object files should be named `*.yml` (e.g., `sales_objects.yml`, `finance_objects.yml`, `my_custom_tools.yml`). The special config files (`profiles.yml`, `chat_config.yml`, `rag_config.yml`, `sql_opt_config.yml`) are handled separately using the layered configuration system.
 
 ### Supported Object Types and Attribute Rules
 Each entry in the YAML file is keyed by its name and must specify a `type`. Supported types and their required/optional attributes:
@@ -161,28 +180,28 @@ Each entry in the YAML file is keyed by its name and must specify a `type`. Supp
 
 ### Dynamic Registration and Glossary Enrichment
 - All objects are registered dynamically at server startup—no code changes required.
-- You can add, update, or remove tools, cubes, prompts, or glossary terms by creating/editing YAML files in your **current working directory** and restarting the server.
-- Working directory files override packaged defaults, so you can customize existing objects or add new ones.
+- You can add, update, or remove tools, cubes, prompts, or glossary terms by creating/editing YAML files in your **config directory** and restarting the server.
+- Config directory files override packaged defaults by object name, so you can customize existing objects or add new ones.
 - The server will register each tool, prompt, and cube using the dictionary key as its name.
 - Glossary terms are automatically enriched with references from cubes and tools.
 
 ### Quick Start for Customization
 
 1. **Install from PyPI:** `pip install teradata-mcp-server`
-2. **Create working directory:** `mkdir my-teradata-config && cd my-teradata-config`
-3. **Create custom objects:** Add your `*.yml` files (e.g., `my_tools.yml`)
-4. **Optionally customize profiles:** Create `profiles.yml` to override default profiles
-5. **Run server:** `teradata-mcp-server --profile my_profile`
+2. **Create config directory:** `mkdir my-teradata-config`
+3. **Create custom objects:** Add your `*.yml` files (e.g., `my_tools.yml`) to the config directory
+4. **Optionally customize profiles:** Create `profiles.yml` in config directory to override default profiles
+5. **Run server:** `teradata-mcp-server --config_dir my-teradata-config --profile my_profile`
 
-The server will automatically load packaged defaults plus your custom configurations.
+The server will automatically load packaged defaults plus your custom configurations from the config directory.
 
 
 ## Best Practices
 
 - **Organize by domain:** Use separate YAML files for each business domain (e.g., `sales_tools.yml`, `finance_metrics.yml`)
-- **Use descriptive names:** Clear, descriptive names for each tool, cube, and prompt help users understand their purpose  
+- **Use descriptive names:** Clear, descriptive names for each tool, cube, and prompt help users understand their purpose
 - **Document everything:** Add descriptions to all parameters, dimensions, and measures
-- **Working directory approach:** Create a dedicated directory for your custom configurations to keep them organized
+- **Config directory approach:** Create a dedicated directory for your custom configurations and use `--config_dir` to point to it
 - **Version control:** Keep your custom YAML files in version control for change tracking
 - **Test profiles:** Create profiles that match your user groups' needs and permissions
 
@@ -198,18 +217,15 @@ my-teradata-config/
 ```
 
 ### Complete Example
-See the provided [`custom_objects.yml`](../custom_objects.yml) in the repository for a complete working example.
+See the provided [`custom_objects.yml`](../../examples/server-customisation/custom_objects.yml) in the repository for a complete working example.
 
 ### Running with Custom Configuration
 ```bash
-# Navigate to your config directory
-cd my-teradata-config
+# Run server with config directory and profile
+teradata-mcp-server --config_dir my-teradata-config --profile sales
 
-# Run server with custom objects and profiles
-teradata-mcp-server --profile sales
-
-# Server automatically loads:
+# Server automatically loads (layered):
 # 1. Packaged defaults (from installation)
-# 2. Your custom YAML files (from current directory)
-# 3. Your custom profiles.yml (if present)
+# 2. Your custom YAML files (from config directory)
+# 3. Your custom profiles.yml (if present, top-level keys override packaged)
 ```

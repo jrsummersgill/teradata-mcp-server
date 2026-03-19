@@ -6,8 +6,8 @@ Also carries packaged configuration files (e.g., default profiles.yml).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class Settings:
     # General
     profile: str | None = None
     database_uri: str | None = None
+    config_dir: str | None = None  # User config directory for runtime overrides
 
     # MCP transport
     mcp_transport: str = "stdio"  # stdio | streamable-http | sse
@@ -45,6 +46,7 @@ def settings_from_env() -> Settings:
     return Settings(
         profile=os.getenv("PROFILE") or None,
         database_uri=os.getenv("DATABASE_URI") or None,
+        config_dir=os.getenv("CONFIG_DIR") or None,
         mcp_transport=os.getenv("MCP_TRANSPORT", "stdio").lower(),
         mcp_host=os.getenv("MCP_HOST", "localhost"),
         mcp_port=int(os.getenv("MCP_PORT", "8001")),

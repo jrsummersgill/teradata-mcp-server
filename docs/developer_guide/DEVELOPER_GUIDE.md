@@ -205,32 +205,85 @@ The template code should be copied and prefixes for directory name and files sho
 
 ## Configuration System
 
-The server uses a hierarchical configuration system that supports both packaged defaults and user customizations:
+The server uses a **layered configuration system** that supports packaged defaults and user customizations. See the [Configuration Guide](../server_guide/CONFIGURATION.md) for complete user documentation.
 
-### Configuration Hierarchy (highest to lowest priority):
-1. **CLI arguments** - Command line flags override everything
-2. **Environment variables** - Standard environment variable configuration  
-3. **Working directory configs** - External `profiles.yml` and `*_objects.yml` files
-4. **Packaged defaults** - Built-in configurations shipped with the package
+### Configuration Types
 
-### Package vs Development Configuration:
+The server uses two distinct types of configuration:
 
-**PyPI Installation:**
-- Default configurations are packaged in `src/teradata_mcp_server/config/`
-- Users can create local `profiles.yml` and `*_objects.yml` files to override/extend
-- Configurations are automatically merged at runtime
+#### 1. Runtime Settings (CLI arguments & environment variables)
+**Configured via:** Command-line arguments or environment variables
+**Defined in:** `src/teradata_mcp_server/config/__init__.py` (Settings dataclass)
+**Used for:** Server behavior, connections, transport settings
 
-**Development Environment:**
-- External configuration files in repository root are used for development
-- Same merging logic applies, but external files take precedence
+Examples:
+- `--profile` / `PROFILE` - Which tools to load
+- `--config_dir` / `CONFIG_DIR` - Where to find config files
+- `--database_uri` / `DATABASE_URI` - Database connection string
+- `--mcp_transport` / `MCP_TRANSPORT` - stdio, streamable-http, or sse
+- `--logging_level` / `LOGGING_LEVEL` - Logging verbosity
+- `LOGMECH`, `TD_POOL_SIZE`, `AUTH_MODE`, etc.
 
-### Configuration Files:
+**Priority:** CLI arguments > Environment variables > .env file > Defaults
+
+#### 2. Feature Configuration Files (YAML)
+**Configured via:** YAML files in config directory
+**Loaded by:** `config_loader.load_config()` function
+**Used for:** Feature-specific settings (chat, RAG, SQL optimization, profiles, custom objects)
+
+Files:
+- `profiles.yml` - Define which tools/prompts/resources are available
+- `chat_config.yml` - Chat completion configuration (model, API endpoint, etc.)
+- `rag_config.yml` - RAG/vector store configuration
+- `sql_opt_config.yml` - SQL optimizer configuration
+- `*_objects.yml` - Custom tool/prompt/cube/glossary definitions
+
+### Configuration File Loading Strategy
+
+Configuration files are loaded in the order below using a **simple override strategy**:
+
+1. **Built-in defaults** - Hardcoded defaults in the application code (if any)
+2. **Packaged config** - Files in `src/teradata_mcp_server/config/` (source defaults, read-only in production)
+3. **User config** - Files in the current working directory or in the config directory specified by `--config_dir` (runtime overrides)
+
+**How overriding works:**
+- Later layers override earlier layers
+- **Top-level keys are replaced entirely** (no recursive merge)
+- If a key exists in user config, it completely replaces the packaged config value
+- Keys only in packaged config are preserved if not overridden
+
+**Example:**
+```python
+# Packaged config/chat_config.yml
+{
+  "base_url": "http://localhost:11434",
+  "model": "qwen",
+  "databases": {"function_db": "openai_client", "default_db": "demo"}
+}
+
+# User config/chat_config.yml
+{
+  "base_url": "https://api.openai.com",
+  "databases": {"function_db": "my_db"}
+}
+
+# Result (top-level keys replaced)
+{
+  "base_url": "https://api.openai.com",          # overridden
+  "model": "qwen",                                # preserved (not in user config)
+  "databases": {"function_db": "my_db"}          # ENTIRE "databases" replaced (default_db is gone)
+}
+```
+
+**Important:** When overriding a dictionary key like `databases`, provide ALL values you need - the entire dictionary is replaced, not merged.
+
+### Configuration File Examples
 
 **profiles.yml** - Defines tool/prompt/resource profiles:
 ```yaml
 all:
   tool: [".*"]
-  prompt: [".*"] 
+  prompt: [".*"]
   resource: [".*"]
 
 dba:
@@ -238,21 +291,49 @@ dba:
   prompt: ["^dba_*"]
 ```
 
-***_objects.yml** - Define custom tools, prompts, cubes, and glossaries:
+**chat_config.yml** - Chat completion configuration:
 ```yaml
-my_custom_tool:
+base_url: "http://localhost:11434"
+model: "qwen2.5-coder:7b"
+databases:
+  function_db: "openai_client"
+```
+
+**custom_sales_objects.yml** - Custom tools, prompts, cubes:
+```yaml
+sales_top_customers:
   type: tool
-  description: "My custom SQL tool"
-  sql: "SELECT COUNT(*) FROM my_table"
+  description: "Get the top 20 customers by lifetime value"
+  sql: "SELECT TOP 20 * FROM customers ORDER BY lifetime_value DESC"
 ```
 
 ### For Developers:
 
-The configuration system is implemented in `src/teradata_mcp_server/utils.py` and the runtime settings in `src/teradata_mcp_server/config.py`. Key functions:
-- `load_profiles()` - Load packaged + working directory profiles.yml
-- `get_profile_config(profile_name)` - Get specific profile configuration  
-- `load_all_objects()` - Load all packaged + working directory YAML objects
-And at runtime, `Settings` is passed into `create_mcp_app(settings)`.
+The configuration system is implemented in:
+- `src/teradata_mcp_server/config/__init__.py` - Runtime `Settings` dataclass (CLI/env configuration)
+- `src/teradata_mcp_server/config_loader.py` - YAML file loading with simple override strategy
+- `src/teradata_mcp_server/utils.py` - Helper functions for profiles and custom objects
+- `src/teradata_mcp_server/app.py` - Wires everything together in `create_mcp_app(settings)`
+
+Key functions:
+- `settings_from_env()` - Create Settings from environment variables
+- `config_loader.load_config(config_name, config_dir, defaults)` - Load a config file with override strategy
+- `config_loader.set_global_config_dir(path)` - Set the global config directory (called at app startup)
+- `config_loader.get_global_config_dir()` - Get the current config directory
+- `load_profiles()` - Load packaged + user config directory profiles.yml
+- `get_profile_config(profile_name)` - Get specific profile configuration
+
+At runtime:
+1. CLI arguments and environment variables are parsed into a `Settings` object
+2. `Settings` is passed to `create_mcp_app(settings)`
+3. The app sets the global config directory from `settings.config_dir`
+4. Config files are loaded from that directory (with packaged defaults as fallback)
+
+**Development Workflow:**
+1. Packaged configs in `src/teradata_mcp_server/config/` provide defaults for all users
+2. Create test configs in a separate directory (e.g., `./var/mcp-config/`)
+3. Run with `--config_dir ./var/mcp-config/` to test overrides without modifying packaged files
+4. Custom object files (`*_objects.yml`) are automatically discovered in the config directory
 
 **Configuration Examples:**
 See `examples/Configuration_Examples/` for complete example configurations that you can copy and customize.

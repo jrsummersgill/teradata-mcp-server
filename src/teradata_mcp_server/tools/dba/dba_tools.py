@@ -8,7 +8,7 @@ logger = logging.getLogger("teradata_mcp_server")
 
 #------------------ Tool  ------------------#
 # Get table SQL tool
-def handle_dba_tableSqlList(conn: TeradataConnection, table_name: str, no_days: int | None = 7,  *args, **kwargs):
+def handle_dba_tableSqlList(conn: TeradataConnection, table_name: str, no_days: str | int | None = 7,  *args, **kwargs):
     """
     Get a list of SQL run against a table in the last number of days.
 
@@ -46,7 +46,7 @@ def handle_dba_tableSqlList(conn: TeradataConnection, table_name: str, no_days: 
 
 #------------------ Tool  ------------------#
 # Get user SQL tool
-def handle_dba_userSqlList(conn: TeradataConnection, user_name: str, no_days: int | None = 7,  *args, **kwargs):
+def handle_dba_userSqlList(conn: TeradataConnection, user_name: str = "", no_days: str | int | None = 7,  *args, **kwargs):
     """
     Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
 
@@ -58,6 +58,10 @@ def handle_dba_userSqlList(conn: TeradataConnection, user_name: str, no_days: in
       ResponseType: formatted response with query results + metadata
     """
     logger.debug(f"Tool: handle_dba_userSqlList: Args: user_name: {user_name}")
+
+    # Treat wildcards as "all users" (planner may pass *, %, or "all" instead of omitting)
+    if user_name and user_name.strip().lower() in ("*", "%", "all"):
+        user_name = ""
 
     with conn.cursor() as cur:
         if user_name == "":
@@ -90,27 +94,59 @@ def handle_dba_userSqlList(conn: TeradataConnection, user_name: str, no_days: in
 
 #------------------ Tool  ------------------#
 # Get table space tool
-def handle_dba_tableSpace(conn: TeradataConnection, database_name: str | None = None, table_name: str | None = None, *args, **kwargs):
+def handle_dba_tableSpace(conn: TeradataConnection, database_name: str | None = None, table_name: str | None = None, top_n: int | None = None, exclude_system: bool | None = None, *args, **kwargs):
     """
     Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
 
     Arguments:
       database_name - database name
       table_name - table name
+      top_n - limit results to top N largest tables (optional)
+      exclude_system - exclude system databases, tables named 'All', and tables with dots in names (optional, default false)
 
     Returns:
       ResponseType: formatted response with query results + metadata
     """
-    logger.debug(f"Tool: handle_dba_tableSpace: Args: database_name: {database_name}, table_name: {table_name}")
+    logger.debug(f"Tool: handle_dba_tableSpace: Args: database_name: {database_name}, table_name: {table_name}, top_n: {top_n}, exclude_system: {exclude_system}")
+
+    # System databases to exclude (same list as base_databaseList)
+    _SYSTEM_DBS = (
+        "'DBC','SYSLIB','SystemFe','SYSUDTLIB','SYSJDBC','SYSSPATIAL',"
+        "'TD_SYSFNLIB','TDQCD','TDStats','TDPUSER','dbcmngr','Crashdumps',"
+        "'LockLogShredder','SYSBAR','SysAdmin','Sys_Calendar','EXTUSER',"
+        "'DEFAULT','All','PUBLIC','SQLJ','SYSUIF','TD_ANALYTICS_DB',"
+        "'TD_SERVER_DB','TD_SYSGPL','TDSYSFLOW','TDMaps','SAS_SYSFNLIB',"
+        "'TDBCMgmt','External_AP','PDCRAdmin','PDCRSTG','PDCRDATA',"
+        "'PDCRINFO','PDCRTPCD','PDCRADM','TD_DATASHARING_REPO',"
+        "'TD_METRIC_SVC','console','tdwm','val'"
+    )
 
     with conn.cursor() as cur:
         if not database_name and not table_name:
-            logger.debug("No database or table name provided, returning all tables and space information.")
-            rows = cur.execute("""SELECT DatabaseName, TableName, SUM(CurrentPerm) AS CurrentPerm1, SUM(PeakPerm) as PeakPerm
-            ,CAST((100-(AVG(CURRENTPERM)/MAX(NULLIFZERO(CURRENTPERM))*100)) AS DECIMAL(5,2)) as SkewPct
-            FROM DBC.AllSpaceV
-            GROUP BY DatabaseName, TableName
-            ORDER BY CurrentPerm1 desc;""")
+            if exclude_system:
+                # Join with TablesV to get only actual tables (not SPs, views, macros)
+                # Also exclude system databases and TDaaS-prefixed databases
+                logger.debug("Returning top user tables only (exclude_system=true).")
+                rows = cur.execute(f"""SELECT a.DatabaseName, a.TableName,
+                    SUM(a.CurrentPerm) AS CurrentPerm1, SUM(a.PeakPerm) as PeakPerm,
+                    CAST((100-(AVG(a.CURRENTPERM)/MAX(NULLIFZERO(a.CURRENTPERM))*100)) AS DECIMAL(5,2)) as SkewPct
+                    FROM DBC.AllSpaceV a
+                    INNER JOIN DBC.TablesV t ON a.DatabaseName = t.DatabaseName AND a.TableName = t.TableName
+                    WHERE t.TableKind = 'T'
+                    AND a.DatabaseName NOT IN ({_SYSTEM_DBS})
+                    AND a.DatabaseName NOT LIKE 'TDaaS%'
+                    AND a.TableName <> 'All'
+                    AND a.TableName NOT LIKE 'hist_%'
+                    AND a.TableName NOT LIKE '%.%'
+                    GROUP BY a.DatabaseName, a.TableName
+                    ORDER BY CurrentPerm1 desc;""")
+            else:
+                logger.debug("No database or table name provided, returning all tables and space information.")
+                rows = cur.execute(f"""SELECT DatabaseName, TableName, SUM(CurrentPerm) AS CurrentPerm1, SUM(PeakPerm) as PeakPerm
+                ,CAST((100-(AVG(CURRENTPERM)/MAX(NULLIFZERO(CURRENTPERM))*100)) AS DECIMAL(5,2)) as SkewPct
+                FROM DBC.AllSpaceV
+                GROUP BY DatabaseName, TableName
+                ORDER BY CurrentPerm1 desc;""")
         elif not database_name:
             logger.debug(f"No database name provided, returning all space information for table: {table_name}.")
             rows = cur.execute(f"""SELECT DatabaseName, TableName, SUM(CurrentPerm) AS CurrentPerm1, SUM(PeakPerm) as PeakPerm
@@ -137,10 +173,14 @@ def handle_dba_tableSpace(conn: TeradataConnection, database_name: str | None = 
             ORDER BY CurrentPerm1 desc;""")
 
         data = rows_to_json(cur.description, rows.fetchall())
+        # Apply top_n limit after sorting (results already ordered by CurrentPerm1 desc)
+        if top_n and len(data) > int(top_n):
+            data = data[:int(top_n)]
         metadata = {
             "tool_name": "dba_tableSpace",
             "database_name": database_name,
             "table_name": table_name,
+            "top_n": top_n,
             "total_tables": len(data)
         }
         logger.debug(f"Tool: handle_dba_tableSpace: metadata: {metadata}")
@@ -149,7 +189,7 @@ def handle_dba_tableSpace(conn: TeradataConnection, database_name: str | None = 
 
 #------------------ Tool  ------------------#
 # Get database space tool
-def handle_dba_databaseSpace(conn: TeradataConnection, database_name: str | None | None, *args, **kwargs):
+def handle_dba_databaseSpace(conn: TeradataConnection, database_name: str | None = None, *args, **kwargs):
     """
     Get database space if database name is provided, otherwise get all databases space allocations.
 
@@ -160,6 +200,10 @@ def handle_dba_databaseSpace(conn: TeradataConnection, database_name: str | None
       ResponseType: formatted response with query results + metadata
     """
     logger.debug(f"Tool: handle_dba_databaseSpace: Args: database_name: {database_name}")
+
+    # Treat wildcards as "all databases" (planner may pass *, %, or "all" instead of omitting)
+    if database_name and database_name.strip().lower() in ("*", "%", "all"):
+        database_name = None
 
     database_name_filter = f"AND objectdatabasename = '{database_name}'" if database_name else ""
 
@@ -208,6 +252,7 @@ def handle_dba_resusageSummary(conn: TeradataConnection,
                                  dimensions: list[str] | None = None,
                                  user_name: str | None = None,
                                  date:  str | None = None,
+                                 no_days: str | int | None = 30,
                                  dayOfWeek:  str | None = None,
                                  hourOfDay:  str | None = None,
                                  workloadType: str | None = None,
@@ -222,6 +267,7 @@ def handle_dba_resusageSummary(conn: TeradataConnection,
       dimensions - list of dimensions to aggregate the resource usage summary. All dimensions are: ["LogDate", "hourOfDay", "dayOfWeek", "workloadType", "workloadComplexity", "UserName", "AppId"]
       user_name - user name
       date - Date to analyze, formatted as `YYYY-MM-DD`
+      no_days - number of days to look back (default 30)
       dayOfWeek - day of the week to analyze
       hourOfDay - hour of day to analyze
       workloadType - workload type to analyze, example: 'LOAD', 'ETL/ELT', 'EXPORT', 'QUERY', 'ADMIN', 'OTHER'
@@ -229,7 +275,22 @@ def handle_dba_resusageSummary(conn: TeradataConnection,
       AppId - Application ID to analyze, example: 'TPTLOAD%', 'TPTUPD%', 'FASTLOAD%', 'MULTLOAD%', 'EXECUTOR%', 'JDBC%'
 
     """
-    logger.debug(f"Tool: handle_dba_resusageSummary: Args: dimensions: {dimensions}")
+    logger.debug(f"Tool: handle_dba_resusageSummary: Args: dimensions: {dimensions}, no_days: {no_days}")
+
+    # Treat wildcards as "all users" (planner may pass *, %, or "all" instead of omitting)
+    if user_name and user_name.strip().lower() in ("*", "%", "all"):
+        user_name = None
+
+    # Normalize no_days: planner sends str or int inconsistently
+    if no_days is not None:
+        try:
+            no_days = int(no_days)
+        except (ValueError, TypeError):
+            no_days = 30
+        # no_days defines a date range; ignore single-date filter to avoid conflicting constraints
+        if date is not None:
+            logger.debug(f"Tool: handle_dba_resusageSummary: Ignoring date={date} because no_days={no_days} is set")
+            date = None
 
     comment="Total system resource usage summary."
 
@@ -320,7 +381,7 @@ def handle_dba_resusageSummary(conn: TeradataConnection,
                 INNER JOIN Sys_Calendar.CALENDAR QryCal
                     ON QryCal.calendar_date = CAST(QryLog.Starttime as DATE)
             WHERE
-                CAST(QryLog.Starttime as DATE) BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE
+                CAST(QryLog.Starttime as DATE) BETWEEN CURRENT_DATE - {no_days} AND CURRENT_DATE
                 AND StartTime IS NOT NULL
                 {filter_clause}
         ) AS QryDetails
@@ -354,6 +415,13 @@ def handle_dba_tableUsageImpact(conn: TeradataConnection, database_name: str | N
 
     """
     logger.debug(f"Tool: handle_dba_tableUsageImpact: Args: database_name: {database_name}, user_name: {user_name}")
+
+    # Treat wildcards as "all" (planner may pass * or % instead of omitting)
+    if user_name and user_name.strip().lower() in ("*", "%", "all"):
+        user_name = None
+    if database_name and database_name.strip().lower() in ("*", "%", "all"):
+        database_name = None
+
     database_name_filter = f"AND objectdatabasename = '{database_name}'" if database_name else ""
     user_name_filter = f"AND username = '{user_name}'" if user_name else ""
     table_usage_sql="""

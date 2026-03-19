@@ -1,0 +1,24 @@
+{
+  "test_cases": {
+    "chat_completeChat": [
+      {
+        "name": "chat_simple_completion",
+        "description": "Run CompleteChat on a small in-memory table and ensure a successful response structure.",
+        "parameters": {
+          "sql": "SELECT 1 AS id, 'Hello from Teradata MCP' AS txt",
+          "system_message": "You are a helpful assistant. Reply with a very short confirmation."
+        }
+      }
+    ],
+    "chat_aggregatedCompleteChat": [
+      {
+        "name": "chat_aggregated_simple_counts",
+        "description": "Run aggregated CompleteChat on a small set of labeled texts and verify aggregated counts are returned.",
+        "parameters": {
+          "sql": "SELECT 1 AS id, 'I love this product' AS txt FROM (SELECT 1 AS x) t UNION ALL SELECT 2 AS id, 'I hate this product' AS txt FROM (SELECT 1 AS x) t2;",
+          "system_message": "You are a sentiment classifier. For each text, return exactly one word: positive, negative, or neutral."
+        }
+      }
+    ]
+  }
+}

@@ -10,10 +10,11 @@
 
 The MCP server uses the following configuration sources in priority order (highest to lowest):
 
-1. **Command line arguments** (e.g., `--profile dataScientist`)
-2. **Environment variables** (e.g., `export PROFILE=dataScientist`)
-3. **Configuration files** (e.g., `.env` file)
+1. **Command line arguments** (e.g., `--profile dataScientist`, `--config_dir /path/to/config`)
+2. **Environment variables** (e.g., `export PROFILE=dataScientist`, `export CONFIG_DIR=/path/to/config`)
+3. **Environment file** (i.e., `.env` file)
 4. **Default values**
+
 
 ### Environment Variables
 
@@ -58,6 +59,35 @@ MCP_PORT=8001
 
 The server automatically loads `.env` files from the current directory. Command line arguments will override these values.
 
+## Configuration files for customization and advanced tools
+
+You can specify a custom directory for user configuration files using the `--config_dir` parameter or `CONFIG_DIR` environment variable:
+
+```bash
+# Using command line argument
+teradata-mcp-server --config_dir /path/to/my/config-files
+```
+
+**Default:** If not specified, the current working directory is used, if no relevant config files are found the package defaults are applied.
+
+The configuration directory can contain:
+- Custom tool/prompt YAML definitions (any file with a `.yml` extension that is not in the list below - e.g., `my_tools.yml`)
+- `profiles.yml` - Custom profiles
+- `chat_config.yml` - Chat completion configuration overrides
+- `rag_config.yml` - RAG configuration overrides
+- `sql_opt_config.yml` - SQL optimizer configuration overrides
+
+### Configuration Strategy
+
+The server uses a **layered configuration approach** where configuration files are loaded in the following order:
+
+1. **Built-in Defaults** - Hardcoded default values in the application code
+2. **Packaged Config** - Configuration files in `src/teradata_mcp_server/config/` (developer mode, read-only)
+3. **User Config** - Configuration files in your config directory (runtime overrides)
+
+Later layers override earlier layers, and top-level keys are replaced entirely (no merge)
+
+
 ## 🎯 Profiles
 
 Profiles control which tools and resources are available:
@@ -90,20 +120,44 @@ export PROFILE="base,qlty,custom"
 
 ### Custom Profiles
 
-Create custom profiles in `profiles.yml` (must be in the current directory where the application is started):
+Create custom profiles in `profiles.yml` in your config directory (see Configuration Directory section above):
 
 ```yaml
-# profiles.yml
+# profiles.yml (in your config directory)
 myProfile:
   tool:
     - "base_*"           # All base tools
-    - "custom_sales_*"   # Custom sales tools  
+    - "custom_sales_*"   # Custom sales tools
     - "qlty_dataProfile" # Specific quality tool
   prompt:
     - "sales_*"          # All sales prompts
   resource:
     - "glossary"         # Include glossary
 ```
+
+**Example usage with custom config directory:**
+```bash
+# Create your config directory
+mkdir -p ~/my-teradata-config
+
+# Create custom profiles
+cat > ~/my-teradata-config/profiles.yml << 'EOF'
+myProfile:
+  tool:
+    - "base_*"
+    - "qlty_*"
+  prompt:
+    - "sql_*"
+EOF
+
+# Start server with custom config
+teradata-mcp-server --config_dir ~/my-teradata-config --profile myProfile
+```
+
+Your custom `profiles.yml` will be merged with the built-in profiles, allowing you to:
+- Override existing profiles
+- Add new profiles
+- Extend built-in profiles with additional tools
 
 ## 🚄 Transport Modes
 

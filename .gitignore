@@ -9,8 +9,11 @@ working/
 **/.ipynb_checkpoints/
 /env
 CLAUDE.md
+docker-compose.dev.yml
 var/
 /# Only ignore root-level overrides
 /profiles.yml
 /*_objects.yml
 examples/app-flowise/.*
+.planning/
+.ruff_cache/

@@ -6,7 +6,7 @@ import importlib
 import inspect
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("teradata_mcp_server.module_loader")
 
@@ -21,6 +21,7 @@ class ModuleLoader:
     MODULE_MAP = {
         'bar': 'teradata_mcp_server.tools.bar',
         'base': 'teradata_mcp_server.tools.base',
+        'chat': 'teradata_mcp_server.tools.chat',
         'dba': 'teradata_mcp_server.tools.dba',
         'fs': 'teradata_mcp_server.tools.fs',
         'qlty': 'teradata_mcp_server.tools.qlty',
@@ -40,10 +41,10 @@ class ModuleLoader:
     def determine_required_modules(self, config: dict) -> list[str]:
         """
         Determine which modules are required based on the profile configuration.
-        
+
         Args:
             config: Profile configuration dictionary
-            
+
         Returns:
             List of module names that need to be loaded
         """
@@ -56,7 +57,7 @@ class ModuleLoader:
 
         # Check each tool pattern against module prefixes
         for pattern in tool_patterns:
-            for prefix, module_path in self.MODULE_MAP.items():
+            for prefix, _module_path in self.MODULE_MAP.items():
                 # Create a test tool name to see if pattern matches
                 test_name = f"{prefix}_test"
                 if re.match(pattern, test_name):
@@ -69,10 +70,10 @@ class ModuleLoader:
     def load_module(self, module_name: str) -> Any | None:
         """
         Load a specific module if it hasn't been loaded yet.
-        
+
         Args:
             module_name: Name of the module to load
-            
+
         Returns:
             The loaded module or None if loading fails
         """
@@ -118,7 +119,7 @@ class ModuleLoader:
     def get_all_functions(self) -> dict[str, Any]:
         """
         Get all functions from loaded modules in the same format as the original td import.
-        
+
         Returns:
             Dictionary mapping function names to function objects
         """
@@ -141,14 +142,14 @@ class ModuleLoader:
     def get_required_yaml_paths(self) -> list:
         """
         Get the paths to YAML files for only the required modules.
-        
+
         Returns:
             List of file paths/resources for YAML files that should be loaded
         """
         from importlib.resources import files as pkg_files
 
         yaml_paths = []
-        
+
         try:
             tools_pkg_root = pkg_files("teradata_mcp_server").joinpath("tools")
             if tools_pkg_root.is_dir():
@@ -169,10 +170,10 @@ class ModuleLoader:
     def is_module_required(self, module_name: str) -> bool:
         """
         Check if a module is required by the current profile.
-        
+
         Args:
             module_name: Name of the module to check
-            
+
         Returns:
             True if the module is required, False otherwise
         """

@@ -4,11 +4,12 @@ import argparse
 import asyncio
 import os
 import signal
+
 from dotenv import load_dotenv
 
-from teradata_mcp_server.config import Settings, settings_from_env
-from teradata_mcp_server.app import create_mcp_app
 from teradata_mcp_server import __version__
+from teradata_mcp_server.app import create_mcp_app
+from teradata_mcp_server.config import Settings, settings_from_env
 
 
 def parse_args_to_settings() -> Settings:
@@ -18,7 +19,8 @@ def parse_args_to_settings() -> Settings:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('--profile', type=str, required=False)
+    parser.add_argument('--profile', type=str, required=False, help='Profile name to load from profiles.yml')
+    parser.add_argument('--config_dir', type=str, required=False, help='Directory for user configuration files (default: current working directory)')
     parser.add_argument('--mcp_transport', type=str, choices=['stdio', 'streamable-http', 'sse'], required=False)
     parser.add_argument('--mcp_host', type=str, required=False)
     parser.add_argument('--mcp_port', type=int, required=False)
@@ -35,6 +37,7 @@ def parse_args_to_settings() -> Settings:
     return Settings(
         profile=args.profile if args.profile is not None else env.profile,
         database_uri=args.database_uri if args.database_uri is not None else env.database_uri,
+        config_dir=args.config_dir if args.config_dir is not None else env.config_dir,
         mcp_transport=(args.mcp_transport or env.mcp_transport).lower(),
         mcp_host=args.mcp_host if args.mcp_host is not None else env.mcp_host,
         mcp_port=args.mcp_port if args.mcp_port is not None else env.mcp_port,
@@ -61,10 +64,8 @@ async def main():
         logger.warning("Signal handling not supported on this platform")
 
     # Run transport
-    if settings.mcp_transport == 'sse':
-        await mcp.run_sse_async(host=settings.mcp_host, port=settings.mcp_port, path=settings.mcp_path)
-    elif settings.mcp_transport == 'streamable-http':
-        await mcp.run_http_async(transport='streamable-http', host=settings.mcp_host, port=settings.mcp_port, path=settings.mcp_path)
+    if settings.mcp_transport in ['sse', 'streamable-http']:
+        await mcp.run_http_async(transport=settings.mcp_transport, host=settings.mcp_host, port=settings.mcp_port, path=settings.mcp_path)
     else:
         await mcp.run_stdio_async()
 

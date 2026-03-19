@@ -1,0 +1,89 @@
+# Configuration for Chat Completion Tools
+# Used to connect Teradata with OpenAI-compatible LLM inference servers
+
+# Connection Configuration
+# base_url (REQUIRED): Base URL of the inference server
+# Will log error and disable the tool if not set
+# Example: "https://api.openai.com"
+base_url: ""
+
+# Model Configuration (REQUIRED)
+# model: The model name/ID to use for chat completion
+# Example: "qwen2.5-coder:7b", "gpt-4", "claude-3-opus"
+model: ""  # REQUIRED - will log error and disable tool if not set
+
+# TLS/HTTPS Configuration
+# IgnoreHTTPSVerification: Skip TLS certificate verification (dev/test only)
+# HTTP proxy configuration
+# http_proxy: Optional HTTP proxy in "host:port" format (e.g. "proxy.example.com:8080")
+# If omitted or empty, no proxy is used.
+http_proxy: ""
+
+# TLS/HTTPS Configuration
+# ignore_https_verification: Skip TLS certificate verification (dev/test only)
+# Default: false
+ignore_https_verification: false
+
+# HTTP Headers Configuration
+# custom_headers: List of custom HTTP headers to add to requests
+# Format: key-value pairs
+# Example:
+#   - key: "x-custom-header"
+#     value: "custom-value"
+custom_headers: []
+
+# Request Body Parameters
+# body_parameters: Additional parameters to include in JSON request body
+# Values can be JSON objects, arrays, strings, numbers, or booleans
+# Format: key-value pairs
+# Example:
+#   - key: "temperature"
+#     value: "0.1"
+#   - key: "max_tokens"
+#     value: "100"
+#   - key: "response_format"
+#     value: '{"type":"json_object"}'
+body_parameters: []
+
+# Optional PEM file selector SQL
+# pem_file_sql: SQL statement to select PEM file for the second input (TLS cert table).
+# If empty or not provided, it will not be added to generated SQL statements.
+# Example:
+# pem_file_sql: "SELECT cert FROM mydb.pem_files WHERE id = 'cert'"
+pem_file_sql: ""
+
+# Rate Limiting Configuration
+# delays: Comma-separated list of retry delays in milliseconds for HTTP 429
+# Default: "500"
+delays: "500"
+
+# retries_number: Number of retries after hitting rate limit (HTTP 429)
+# Default: 0
+retries_number: 0
+
+# throw_error_on_rate_limit: Whether to throw error after retries exhausted
+# If false, returns NULL/empty response with diagnostics
+# Default: false
+throw_error_on_rate_limit: false
+
+# Output Configuration
+# output_text_length: Maximum length of output text field (VARCHAR size)
+# Range: 2-32000
+# Default: 16000
+output_text_length: 16000
+
+# remove_deepseek_thinking: Strip <think>...</think> blocks from DeepSeek responses
+# Default: false
+remove_deepseek_thinking: false
+
+# Database Configuration
+databases:
+  # function_db (REQUIRED) - Database for CompleteChat function
+  function_db: "openai_client"
+
+# Output Options
+output:
+  # include_diagnostics: Include diagnostic columns (retries_made, last_attempt_duration, etc.)
+  include_diagnostics: false
+  # include_tachyon_headers: Include Tachyon call-level headers (x_request_id, x_correlation_id, etc.)
+  include_tachyon_headers: false

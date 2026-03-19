@@ -54,3 +54,10 @@ bar:
     - ^bar_*
   resource:
     - ^bar_*
+
+llmUser:
+  tool:
+    - ^base_*
+    - ^chat_*
+  prompt:
+    - ^chat_*

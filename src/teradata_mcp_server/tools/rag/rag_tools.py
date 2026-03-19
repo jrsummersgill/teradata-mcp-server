@@ -2,32 +2,13 @@ import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import yaml
 from teradatasql import TeradataConnection
 
 logger = logging.getLogger("teradata_mcp_server")
-
-# Load RAG configuration
-def load_rag_config():
-    """Load RAG configuration from rag_config.yml"""
-    try:
-        # Get the directory path
-        current_dir = Path(__file__).parent
-        # Go to config/
-        config_path = current_dir.parent.parent / 'config' / 'rag_config.yml'
-        
-        with open(config_path, 'r') as file:
-            logger.info(f"Loading RAG config from: {config_path}")
-            return yaml.safe_load(file)
-    except FileNotFoundError:
-        logger.warning(f"RAG config file not found: {config_path}, using defaults")
-        return get_default_rag_config()
-    except Exception as e:
-        logger.error(f"Error loading RAG config: {e}")
-        return get_default_rag_config()
 
 def get_default_rag_config():
     """Default RAG configuration as fallback"""
@@ -63,6 +44,36 @@ def get_default_rag_config():
             'feature_columns': '[emb_0:emb_383]'
         }
     }
+
+
+def load_rag_config():
+    """
+    Load RAG configuration using the layered strategy.
+
+    Loads from:
+    1. Default values (in code)
+    2. Packaged src/teradata_mcp_server/config/rag_config.yml (developer defaults)
+    3. User config directory rag_config.yml (runtime overrides)
+
+    Returns:
+        Merged configuration dictionary
+    """
+    try:
+        from teradata_mcp_server import config_loader
+
+        # Load configuration (uses global config directory)
+        config = config_loader.load_config(
+            "rag_config.yml",
+            defaults=get_default_rag_config()
+        )
+
+        logger.info("RAG configuration loaded successfully")
+        return config
+
+    except Exception as e:
+        logger.error(f"Error loading RAG config: {e}", exc_info=True)
+        return get_default_rag_config()
+
 
 # Load config at module level
 RAG_CONFIG = load_rag_config()
@@ -156,7 +167,7 @@ def handle_rag_Execute_Workflow(
 
     WORKFLOW STEPS (executed automatically):
     1. Configuration setup using configurable values from rag_config.yml
-    2. Store user query with '/rag ' prefix stripping  
+    2. Store user query with '/rag ' prefix stripping
     3. Generate query embeddings using either BYOM (ONNXEmbeddings) or IVSM functions based on config
     4. Perform semantic search against precomputed chunk embeddings
     5. Return context chunks for answer generation
@@ -211,7 +222,7 @@ def handle_rag_Execute_Workflow(
 
     # Check version and delegate to appropriate implementation
     version = config.get('version', 'ivsm').lower()
-    
+
     if version == 'ivsm':
         return _execute_rag_workflow_ivsm(conn, question, k, config, *args, **kwargs)
     elif version == 'byom':
@@ -222,7 +233,7 @@ def handle_rag_Execute_Workflow(
 
 def _execute_rag_workflow_byom(conn: TeradataConnection, question: str, k: int | None, config: dict, *args, **kwargs):
     """Execute RAG workflow using BYOM (ONNXEmbeddings)"""
-    
+
     # Use config default if k not provided
     if k is None:
         k = config['retrieval']['default_k']
@@ -355,7 +366,7 @@ def _execute_rag_workflow_byom(conn: TeradataConnection, question: str, k: int |
 
 def _execute_rag_workflow_ivsm(conn: TeradataConnection, question: str, k: int | None, config: dict, *args, **kwargs):
     """Execute RAG workflow using IVSM functions"""
-    
+
     # Use config default if k not provided
     if k is None:
         k = config['retrieval']['default_k']
